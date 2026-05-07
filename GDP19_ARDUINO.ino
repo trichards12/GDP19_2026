@@ -1,24 +1,25 @@
+#include "HX711.h"
+// #include <PID_v1.h>
+
 // pin numbers
-const int stepperDir = 2;
-const int stepperStep = 3;
+#define LOADCELL_SCK_PIN  2
+#define LOADCELL_DOUT_PIN  3
 
-const int solenoidIn1 = 5;
-const int solenoidIn2 = 6;
+const int solenoid_In1 = 5;
+const int solenoid_In2 = 6;
 
-const int loadDat = 11;
-const int loadClk = 12;
+const int dirPin = 8;
+const int stepPin = 9;
 
+HX711 scale;
+float calibration_factor = -43765 / 9.81;
+// serial info
 const char *names[] = {"Off", "Stand", "Walk", "Run"};
 
 const int off = 0;
 const int stand = 1;
 const int walk = 2;
 const int run = 3;
-
-// test
-const int stepperF = 3;
-const int stepperB = 6;
-const int solenoid = 10;
 
 // serial packets
 const int maxCycles = 20;
@@ -37,11 +38,12 @@ boolean newData = false;
 
 
 // function prototypes
-void recvWithStartEndMarkers();
-void parseData();
-void showParsedData();
-void runProgram();
-void movementCycle(int);
+void recvWithStartEndMarkers(); // receive + copy new data
+void parseData(); // strip the markers into movement cycles
+void showParsedData(); // format the data into individual cycles
+void runProgram(); // main loop with each cycle to check for stop commands
+void movementCycle(int); // cycle logic
+void stepWithRamp(int, int, int); // for stepper rotation
 
 /*
 void offCycle(unsigned long);
@@ -53,9 +55,23 @@ void runCycle(unsigned long);
 
 void setup() {
     Serial.begin(115200);
-    pinMode(stepperF, OUTPUT);
-    pinMode(stepperB, OUTPUT);
-    pinMode(solenoid, OUTPUT);
+    
+    // solenoid
+    pinMode(solenoid_In1, OUTPUT);
+    pinMode(solenoid_In2, OUTPUT);
+
+    // stepper
+    pinMode(stepPin,OUTPUT); 
+    pinMode(dirPin,OUTPUT);
+    
+    // load cell
+    scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+    scale.set_scale(calibration_factor);
+    scale.tare();
+    
+    delay(5000);
+    scale.tare();
+
     // Serial.println("Enter data in this style <2, 5.0>"); // movement cycle number, duration
     // Serial.println();
 }
@@ -179,55 +195,114 @@ void movementCycle(int movement) {
     static unsigned long lastPrint = 0;
     switch (movement) {
         case 0: // off
-            digitalWrite(stepperF, LOW);
-            digitalWrite(stepperB, LOW);
-            digitalWrite(solenoid, LOW);
+            digitalWrite(solenoid_In1, LOW);
+            digitalWrite(solenoid_In2, LOW);
             if (millis() - lastPrint >= 100) {
                 lastPrint = millis();
                 Serial.print(lastPrint);
                 Serial.print(",");
-                Serial.println();
+                Serial.println(scale.get_units());
             }
             break;
 
         case 1: // stand
-            analogWrite(solenoid, 120);
+            digitalWrite(solenoid_In1, LOW);
+            analogWrite(solenoid_In2, 200);
             if (millis() - lastPrint >= 100) {
                 lastPrint = millis();
                 Serial.print(lastPrint);
                 Serial.print(",");
-                Serial.println();
+                Serial.println(scale.get_units());
             }
             break;
 
         case 2: // walk - this is currently blocking - remove delays 
-            digitalWrite(solenoid, LOW);
-            digitalWrite(stepperF, HIGH);
-            digitalWrite(stepperB,LOW);
-            delay(300);
-            digitalWrite(stepperF, LOW);
-            digitalWrite(stepperB,HIGH);
-            delay(300);
-            digitalWrite(stepperB, LOW);
-            analogWrite(solenoid, 200);
-            delay(300);
-            digitalWrite(solenoid, LOW);
+            digitalWrite(solenoid_In1, LOW);
+            digitalWrite(solenoid_In2, LOW);
+            digitalWrite(dirPin, LOW);
+            stepWithRamp(36, 7000, 3000);
+
+            Serial.print(millis()); // take readings at top of rotation
+            Serial.print(",");
+            Serial.println(scale.get_units());
+
+            digitalWrite(dirPin, HIGH);
+            stepWithRamp(36, 7000, 3000);
+
+            Serial.print(millis()); // take readings at bottom of rotation
+            Serial.print(",");
+            Serial.println(scale.get_units());
+
+            digitalWrite(solenoid_In1, LOW); // SOLENOID HERE
+            analogWrite(solenoid_In2, 255);
+
+            for (int j=0; j<8; j++) {
+                Serial.print(millis());
+                Serial.print(",");
+                Serial.println(scale.get_units());
+            }
+
+            digitalWrite(solenoid_In1, LOW);
+            digitalWrite(solenoid_In2, LOW);
+
+            Serial.print(millis());
+            Serial.print(",");
+            Serial.println(scale.get_units());
+
             break;
 
         case 3: // run - this is currently blocking - remove delays
-            digitalWrite(solenoid, LOW);
-            digitalWrite(stepperF, HIGH);
-            digitalWrite(stepperB,LOW);
-            delay(200);
-            digitalWrite(stepperF, LOW);
-            digitalWrite(stepperB,HIGH);
-            delay(200);
-            digitalWrite(stepperB, LOW);
-            analogWrite(solenoid, 200);
-            delay(200);
-            digitalWrite(solenoid, LOW);
+            digitalWrite(solenoid_In1, LOW);
+            digitalWrite(solenoid_In2, LOW);
+            digitalWrite(dirPin, LOW);
+            stepWithRamp(36, 7000, 2000);
+
+            Serial.print(millis()); // take readings at top of rotation
+            Serial.print(",");
+            Serial.println(scale.get_units());
+
+            digitalWrite(dirPin, HIGH);
+            stepWithRamp(36, 7000, 2000);
+
+            Serial.print(millis()); // take readings at bottom of rotation
+            Serial.print(",");
+            Serial.println(scale.get_units());
+
+            digitalWrite(solenoid_In1, LOW); // SOLENOID HERE
+            analogWrite(solenoid_In2, 255);
+
+            for (int j=0; j<6; j++) {
+                Serial.print(millis());
+                Serial.print(",");
+                Serial.println(scale.get_units());
+            }
+
+            digitalWrite(solenoid_In1, LOW);
+            digitalWrite(solenoid_In2, LOW);
+
+            Serial.print(millis());
+            Serial.print(",");
+            Serial.println(scale.get_units());
+
             break;
     }
 }
 
 //============
+
+void stepWithRamp(int steps, int startDelay, int endDelay) {
+  for (int x = 0; x < steps; x++) {
+    int delayTime;
+
+    if (x < steps / 2) {
+      delayTime = startDelay - (x * (startDelay - endDelay) / (steps / 2));
+    } else {
+      delayTime = startDelay - ((steps - x) * (startDelay - endDelay) / (steps / 2));
+    }
+
+    digitalWrite(stepPin, HIGH);
+    delayMicroseconds(delayTime);
+    digitalWrite(stepPin, LOW);
+    delayMicroseconds(delayTime);
+  }
+}

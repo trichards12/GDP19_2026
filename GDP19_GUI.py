@@ -177,7 +177,7 @@ class AddFrame(ttk.Frame):
 
         self.text_list = tk.Listbox(self) # Treeview may be more appropriate for future iterations
         self.text_list.grid(row=1, column=0, columnspan = 4, sticky="nsew")
-        self.text_list.insert(tk.END, f"{0:<5} - {'Initialise':<10} - {60:>5} seconds")
+        self.text_list.insert(tk.END, f"{0:<5} - {'Initialise':<10} - {5:>5} seconds")
         
     def open_top(self, event=None): # add movement cycle window
         self.popup = tk.Toplevel(self)
@@ -791,6 +791,7 @@ class PlotFrame(ttk.Frame):
         self.canvas.draw()
         
     def start_anim(self):
+        # time.sleep(5) # initalise routine
         self.running = True
         self.paused = False
         self.start_time_ref = time.perf_counter() - self.current_time
